@@ -6,6 +6,10 @@ import sys
 import tabulate
 from time import sleep
 
+PROVIDER_PROFILE = 'profile'
+PROVIDER_ENV = 'env'
+
+DEFAULT_PROVIDER = PROVIDER_PROFILE
 DEFAULT_PROFILE = 'default'  # name of awscli / boto3 profile to target
 DEFAULT_CLUSTER = 'test-ecs-cluster'  # name of ECS cluster to target
 DEFAULT_ACTION = 'replace'  # 'reboot' or 'replace'
@@ -186,8 +190,11 @@ def wait_until_instance_ecs_connected(ecs_client, ecs_instance_id, target_cluste
 
 
 def setup_for_roll(profile, target_cluster):
-    yes_or_exit('Continue, working with AWS profile \'{}\'?'.format(profile))
-    session = boto3.Session(profile_name=profile)
+    if args.provider == PROVIDER_PROFILE:
+        yes_or_exit('Continue, working with AWS profile \'{}\'?'.format(profile))
+        session = boto3.Session(profile_name=profile)
+    else:
+        session = boto3.Session()
     ecs_client = session.client('ecs')
     ec2_client = session.client('ec2')
     as_client = session.client('autoscaling')
@@ -359,18 +366,25 @@ if __name__ == '__main__':
         help='Name of AWS profile to target (default: \'{0}\')'.format(DEFAULT_PROFILE)
     )
     parser.add_argument(
+        '--provider', '-r', nargs='?', default=DEFAULT_PROVIDER, choices=[PROVIDER_PROFILE, PROVIDER_ENV],
+        help='AWS credential provider method to use (default: \'{0}\', choose from [\'{1}\',\'{2}\'])'.format(
+            PROVIDER_PROFILE, PROVIDER_PROFILE, PROVIDER_ENV)
+    )
+    parser.add_argument(
         'action', nargs='?', default=DEFAULT_ACTION,
         help='Action to take (default: \'{0}\')'.format(DEFAULT_ACTION)
     )
     args = parser.parse_args()
 
-    session = boto3.Session()
-    if args.profile not in session.available_profiles:
-        print('ERROR: AWS profile \'{0}\' not configured.'.format(args.profile))
-        print('       Available AWS profiles: {0}'.format(', '.join(session.available_profiles)))
-        sys.exit(2)
-    print('Initiating \'{2}\' maintenance for ECS cluster \'{0}\' in AWS profile \'{1}\'...'.format(
-        args.cluster, args.profile, args.action.upper()
+    if args.provider == PROVIDER_PROFILE:
+        session = boto3.Session()
+        if args.profile not in session.available_profiles:
+            print('ERROR: AWS profile \'{0}\' not configured.'.format(args.profile))
+            print('       Available AWS profiles: {0}'.format(', '.join(session.available_profiles)))
+            sys.exit(2)
+        print('Using AWS profile \'{0}\''.format(args.profile))
+    print('Initiating \'{1}\' maintenance for ECS cluster \'{0}\'...'.format(
+        args.cluster, args.action.upper()
     ))
 
     if args.action.lower() == 'reboot':
