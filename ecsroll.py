@@ -13,7 +13,9 @@ DEFAULT_PROVIDER = PROVIDER_PROFILE
 DEFAULT_PROFILE = 'default'  # name of awscli / boto3 profile to target
 DEFAULT_CLUSTER = 'test-ecs-cluster'  # name of ECS cluster to target
 DEFAULT_ACTION = 'replace'  # 'reboot' or 'replace'
+DEFAULT_WAIT = 30
 
+WAIT_TIME = DEFAULT_WAIT
 
 INSTANCE_FIELDS = ['ec2InstanceId', 'containerInstanceArn', 'status', 'runningTasksCount', 'pendingTasksCount']
 
@@ -34,7 +36,7 @@ def countdown(msg, t):
     print('{}...'.format(msg))
     while t:
         mins, secs = divmod(t, 60)
-        timeformat = '{:02d}:{:02d}'.format(mins, secs)
+        timeformat = '{:02d}:{:02d}'.format(int(mins), int(secs))
         print(timeformat, end='\r')
         sleep(1)
         t -= 1
@@ -106,8 +108,8 @@ def set_scalein_protection_for_instances(as_client, asg, cluster_instances, prot
     )
 
 
-def wait_until_instance_count(ecs_client, target_cluster, count, seconds=60):
-    countdown('Waiting for cluster size change (expected instance count: {})'.format(count), seconds)
+def wait_until_instance_count(ecs_client, target_cluster, count, seconds=WAIT_TIME):
+    countdown('Waiting for cluster size change (expected instance count: {})'.format(count), seconds*3)
     current_instances = get_cluster_instances(ecs_client, target_cluster)
     if len(current_instances) != count:
         yes_or_exit('There are currently {} instances, but expecting {} - keep waiting?'.format(
@@ -117,7 +119,7 @@ def wait_until_instance_count(ecs_client, target_cluster, count, seconds=60):
 
 
 def wait_until_instance_status(ecs_client, target_cluster, instance_id, status):
-    countdown('Waiting for instance {} to have {} status'.format(instance_id, status), 30)
+    countdown('Waiting for instance {} to have {} status'.format(instance_id, status), WAIT_TIME/2)
     current_instances = get_cluster_instances(ecs_client, target_cluster)
     for instance in current_instances:
         if instance[INSTANCE_FIELDS.index('ec2InstanceId')] == instance_id:
@@ -166,7 +168,7 @@ def wait_until_instance_drained(ecs_client, target_cluster, instance_id):
         running = len(response['taskArns'])
         drained = (running == 0)
         if not drained:
-            countdown('Waiting for instance {} to drain; currently running {} tasks'.format(instance_id, running), 60)
+            countdown('Waiting for instance {} to drain; currently running {} tasks'.format(instance_id, running), WAIT_TIME)
 
 
 def wait_until_instance_ec2_ok(ec2_client, ec2_instance_id):
@@ -176,7 +178,7 @@ def wait_until_instance_ec2_ok(ec2_client, ec2_instance_id):
         status = response['InstanceStatuses'][0]['InstanceStatus']['Status']
         ok = (status == 'ok')
         if not ok:
-            countdown('Waiting for instance {} to be \'ok\'; currently \'{}\''.format(ec2_instance_id, status), 60)
+            countdown('Waiting for instance {} to be \'ok\'; currently \'{}\''.format(ec2_instance_id, status), WAIT_TIME)
 
 
 def wait_until_instance_ecs_connected(ecs_client, ecs_instance_id, target_cluster):
@@ -252,7 +254,7 @@ def do_cluster_replace(profile, target_cluster):
             i+1, len(cluster_instances), ec2_instance_id, ecs_instance_id
         ))
 
-        countdown('Waiting for ASG to rightsize ECS cluster', 60)
+        countdown('Waiting for ASG to rightsize ECS cluster', WAIT_TIME)
         wait_until_instance_count(ecs_client, target_cluster, len(cluster_instances) + 1)
         new_instance = get_new_instance(
             cluster_instances, replacement_instances, get_cluster_instances(ecs_client, target_cluster)
@@ -276,12 +278,12 @@ def do_cluster_replace(profile, target_cluster):
         if i < (len(cluster_instances) - 1):
             #  terminate an original instance
             ec2_client.terminate_instances(InstanceIds=[ec2_instance_id, ])
-            countdown('Terminating original instance {} [{}]'.format(ec2_instance_id, ecs_instance_id), 60)
+            countdown('Terminating original instance {} [{}]'.format(ec2_instance_id, ecs_instance_id), WAIT_TIME)
         else:
             # for the final instance, just downsize cluster & let AS / ECS handle it
             set_scalein_protection_for_instances(as_client, asg, replacement_instances, True)
             bump_autoscaling_group(as_client, asg, -1)
-            countdown('Returned to original ASG size, waiting for ASG to downsize ECS cluster', 120)
+            countdown('Returned to original ASG size, waiting for ASG to downsize ECS cluster', WAIT_TIME*2)
             wait_until_instance_count(ecs_client, target_cluster, len(cluster_instances))
             set_scalein_protection_for_instances(as_client, asg, replacement_instances, False)
 
@@ -298,7 +300,7 @@ def do_cluster_reboot(profile, target_cluster):
 
     print('Increasing ASG size by 1 to maintain cluster capacity during rolling reboot')
     bump_autoscaling_group(as_client, asg, 1)
-    countdown('Waiting for ASG to upsize ECS cluster', 60)
+    countdown('Waiting for ASG to upsize ECS cluster', WAIT_TIME)
     # wait until the additional instance joins the cluster
     wait_until_instance_count(ecs_client, target_cluster, len(cluster_instances) + 1)
 
@@ -315,12 +317,12 @@ def do_cluster_reboot(profile, target_cluster):
         wait_until_instance_drained(ecs_client, target_cluster, ecs_instance_id)
         # 1st reboot instance (this picks up any unapplied security updates when it boots)
         ec2_client.reboot_instances(InstanceIds=[ec2_instance_id, ])
-        countdown('Reboot (1/2) for instance {} [{}]'.format(ec2_instance_id, ecs_instance_id), 60)
+        countdown('Reboot (1/2) for instance {} [{}]'.format(ec2_instance_id, ecs_instance_id), WAIT_TIME)
         wait_until_instance_ec2_ok(ec2_client, ec2_instance_id)
         wait_until_instance_ecs_connected(ecs_client, ecs_instance_id, target_cluster)
         # 2nd reboot of instance (boots to new kernel, if it was updated)
         ec2_client.reboot_instances(InstanceIds=[ec2_instance_id, ])
-        countdown('Reboot (2/2) for instance {} [{}]'.format(ec2_instance_id, ecs_instance_id), 60)
+        countdown('Reboot (2/2) for instance {} [{}]'.format(ec2_instance_id, ecs_instance_id), WAIT_TIME)
         wait_until_instance_ec2_ok(ec2_client, ec2_instance_id)
         wait_until_instance_ecs_connected(ecs_client, ecs_instance_id, target_cluster)
         #  mark as ACTIVE and verify that it is
@@ -346,7 +348,7 @@ def do_cluster_reboot(profile, target_cluster):
     # downsize cluster & wait until overflow instance is gone
     set_scalein_protection_for_instances(as_client, asg, cluster_instances, True)
     bump_autoscaling_group(as_client, asg, -1)
-    countdown('Returned to original ASG size, waiting for ASG to downsize ECS cluster', 60)
+    countdown('Returned to original ASG size, waiting for ASG to downsize ECS cluster', WAIT_TIME)
     wait_until_instance_count(ecs_client, target_cluster, len(cluster_instances))
     set_scalein_protection_for_instances(as_client, asg, cluster_instances, False)
 
@@ -366,6 +368,10 @@ if __name__ == '__main__':
         help='Name of AWS profile to target (default: \'{0}\')'.format(DEFAULT_PROFILE)
     )
     parser.add_argument(
+        '--wait', '-w', nargs='?', default=DEFAULT_WAIT, type=int,
+        help='Base for timer to wait between actions (default: \'{0}\')'.format(DEFAULT_WAIT)
+    )
+    parser.add_argument(
         '--provider', '-r', nargs='?', default=DEFAULT_PROVIDER, choices=[PROVIDER_PROFILE, PROVIDER_ENV],
         help='AWS credential provider method to use (default: \'{0}\', choose from [\'{1}\',\'{2}\'])'.format(
             PROVIDER_PROFILE, PROVIDER_PROFILE, PROVIDER_ENV)
@@ -375,6 +381,8 @@ if __name__ == '__main__':
         help='Action to take (default: \'{0}\')'.format(DEFAULT_ACTION)
     )
     args = parser.parse_args()
+
+    WAIT_TIME = args.wait
 
     if args.provider == PROVIDER_PROFILE:
         session = boto3.Session()
