@@ -397,7 +397,7 @@ if __name__ == '__main__':
 
     if args.action.lower() == 'reboot':
         do_cluster_reboot(args.profile, args.cluster)
-    if args.action.lower() == 'replace':
+    elif args.action.lower() == 'replace':
         do_cluster_replace(args.profile, args.cluster)
     else:
         print('ERROR: Don\'t know what to do with action \'{}\'.'.format(args.action))
