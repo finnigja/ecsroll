@@ -20,6 +20,16 @@ Recently I've started using [needs-restarting](https://chair6.net/amazon-linux-s
 
 The script is currently quite interactive (presents a y/n for each instance is works on) by default, but has CLI flags for a more unattended experience. See the usage below.
 
+# Examples
+
+```
+python ecsroll.py replace --cluster test-ecs-cluster -w 10 # Replace instances in `test-ecs-cluster`, use 10s as the base action timer (to have a slightly quicker feedback loop, but potentially more prompts)
+```
+
+```
+python ecsroll.py reboot --cluster test-ecs-cluster -r env -y # Reboot cluster `test-ecs-cluster`, use AWS credentials from Environment variables and automatically respond yes to any prompts
+```
+
 # Usage
 ```
 $ python ecsroll.py -h
