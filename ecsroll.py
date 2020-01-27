@@ -17,18 +17,21 @@ DEFAULT_WAIT = 30
 
 WAIT_TIME = DEFAULT_WAIT
 
+AUTO_YES = False
+
 INSTANCE_FIELDS = ['ec2InstanceId', 'containerInstanceArn', 'status', 'runningTasksCount', 'pendingTasksCount']
 
 
 def yes_or_exit(message):
-    choices = ['y', 'n']
-    choice = ''
-    while choice not in choices:
-        sys.stdout.write('{0} {1} '.format(message, '/'.join(choices)))
-        choice = input().lower()
-    if choice != 'y':
-        print('Exiting... please review output, and take any manual steps needed to normalize enviroment.')
-        sys.exit(2)
+    if not AUTO_YES:
+        choices = ['y', 'n']
+        choice = ''
+        while choice not in choices:
+            sys.stdout.write('{0} {1} '.format(message, '/'.join(choices)))
+            choice = input().lower()
+        if choice != 'y':
+            print('Exiting... please review output, and take any manual steps needed to normalize enviroment.')
+            sys.exit(2)
     sys.stdout.write('\n')
 
 
@@ -377,12 +380,17 @@ if __name__ == '__main__':
             PROVIDER_PROFILE, PROVIDER_PROFILE, PROVIDER_ENV)
     )
     parser.add_argument(
+        '--yes', '-y', default=AUTO_YES, action='store_true',
+        help='Answers \'yes\' to all prompts'
+    )
+    parser.add_argument(
         'action', nargs='?', default=DEFAULT_ACTION,
         help='Action to take (default: \'{0}\')'.format(DEFAULT_ACTION)
     )
     args = parser.parse_args()
 
     WAIT_TIME = args.wait
+    AUTO_YES = args.yes
 
     if args.provider == PROVIDER_PROFILE:
         session = boto3.Session()
