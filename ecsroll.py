@@ -194,6 +194,18 @@ def wait_until_instance_ecs_connected(ecs_client, ecs_instance_id, target_cluste
             countdown('Waiting for instance {} to have ECS agent connected'.format(ec2_instance_id), 60)
 
 
+def check_instances_protected_from_scale_in(as_client, cluster_instances):
+    """
+    Instances that already have Scale In protection will make ecsroll wait forever to scale down.
+    :return: list
+    """
+    instance_ids = list(map(lambda x: x[0], cluster_instances))
+    instances = as_client.describe_auto_scaling_instances(InstanceIds=instance_ids)
+    instances_with_autoscaling_protection = filter(lambda x: x['ProtectedFromScaleIn'] is True,
+                                                   instances['AutoScalingInstances'])
+    return list(map(lambda x: x['InstanceId'], instances_with_autoscaling_protection))
+
+
 def setup_for_roll(profile, target_cluster):
     if args.provider == PROVIDER_PROFILE:
         yes_or_exit('Continue, working with AWS profile \'{}\'?'.format(profile))
@@ -217,6 +229,14 @@ def setup_for_roll(profile, target_cluster):
         print('\tEC2 Instances: {}'.format(', '.join(cluster_instances)))
         print('\tASG [{}]: {}'.format(len(asgs), ', '.join(asgs)))
         sys.exit(2)
+
+    already_protected_instances = check_instances_protected_from_scale_in(as_client, cluster_instances)
+    if len(already_protected_instances) > 0:
+        print('ERROR: EC2 instances associated with ECS cluster have scale in protection.')
+        print('Manually remove Scale In protection from the following instances for ecsroll to work properly:')
+        print('\tEC2 Instances: {}'.format(', '.join(already_protected_instances)))
+        sys.exit(2)
+
     asg = asgs[0]
 
     yes_or_exit('Continue, working with ECS cluster \'{}\'?'.format(target_cluster))
