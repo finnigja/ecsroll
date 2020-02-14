@@ -2,6 +2,7 @@
 
 import argparse
 import boto3
+import os
 import sys
 import tabulate
 from time import sleep
@@ -226,13 +227,14 @@ def check_instances_protected_from_scale_in(as_client, cluster_instances):
     return list(map(lambda x: x['InstanceId'], instances_with_autoscaling_protection))
 
 
-def setup_for_roll(profile, target_cluster):
+def setup_for_roll(profile, target_cluster, region):
     if args.provider == PROVIDER_PROFILE:
         yes_or_exit(
             'Continue, working with AWS profile \'{}\'?'.format(profile))
-        session = boto3.Session(profile_name=profile)
+        session = boto3.Session(profile_name=profile, region_name=region)
     else:
-        session = boto3.Session()
+        session = boto3.Session(region_name=region)
+
     ecs_client = session.client('ecs')
     ec2_client = session.client('ec2')
     as_client = session.client('autoscaling')
@@ -288,9 +290,9 @@ def get_new_instance(original, replacement, current):
             return instance
 
 
-def do_cluster_replace(profile, target_cluster):
+def do_cluster_replace(profile, target_cluster, region):
     ecs_client, ec2_client, as_client, cluster_instances, asg = setup_for_roll(
-        profile, target_cluster)
+        profile, target_cluster, region)
     yes_or_exit('Initiate REPLACE cycle for {} ECS instances ({})?'.format(
         len(cluster_instances), ', '.join([i[0] for i in cluster_instances])
     ))
@@ -357,9 +359,9 @@ def do_cluster_replace(profile, target_cluster):
     print_cluster_instances(get_cluster_instances(ecs_client, target_cluster))
 
 
-def do_cluster_reboot(profile, target_cluster):
+def do_cluster_reboot(profile, target_cluster, region):
     ecs_client, ec2_client, as_client, cluster_instances, asg = setup_for_roll(
-        profile, target_cluster)
+        profile, target_cluster, region)
     yes_or_exit('Initiate REBOOT cycle for {} ECS instances ({})?'.format(
         len(cluster_instances), ', '.join([i[0] for i in cluster_instances])
     ))
@@ -450,7 +452,7 @@ if __name__ == '__main__':
             DEFAULT_CLUSTER)
     )
     parser.add_argument(
-        '--profile', '-p', nargs='?', default=DEFAULT_PROFILE,
+        '--profile', '-p', nargs='?', default=os.getenv('AWS_PROFILE', DEFAULT_PROFILE),
         help='Name of AWS profile to target (default: \'{0}\')'.format(
             DEFAULT_PROFILE)
     )
@@ -463,6 +465,9 @@ if __name__ == '__main__':
         '--provider', '-r', nargs='?', default=DEFAULT_PROVIDER, choices=[PROVIDER_PROFILE, PROVIDER_ENV],
         help='AWS credential provider method to use (default: \'{0}\', choose from [\'{1}\',\'{2}\'])'.format(
             PROVIDER_PROFILE, PROVIDER_PROFILE, PROVIDER_ENV)
+    )
+    parser.add_argument(
+        '--region', nargs='?', help='AWS region if there is not a default one set'
     )
     parser.add_argument(
         '--yes', '-y', default=AUTO_YES, action='store_true',
@@ -491,8 +496,8 @@ if __name__ == '__main__':
     ))
 
     if args.action.lower() == 'reboot':
-        do_cluster_reboot(args.profile, args.cluster)
+        do_cluster_reboot(args.profile, args.cluster, args.region)
     elif args.action.lower() == 'replace':
-        do_cluster_replace(args.profile, args.cluster)
+        do_cluster_replace(args.profile, args.cluster, args.region)
     else:
         print('ERROR: Don\'t know what to do with action \'{}\'.'.format(args.action))
